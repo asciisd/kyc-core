@@ -19,6 +19,7 @@
     </source>
     <php>
         <env name="APP_ENV" value="testing"/>
+        <!-- WARNING: This is a test-only APP_KEY. Never use production keys in version control! -->
         <env name="APP_KEY" value="base64:Iw9kn6oaOx1D1+PpLK6OEireSfcSb9APg0omxFN63EU="/>
         <env name="DB_CONNECTION" value="sqlite"/>
         <env name="DB_DATABASE" value=":memory:"/>
