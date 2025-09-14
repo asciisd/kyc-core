@@ -1,17 +1,21 @@
 # Asciisd KYC Core
 
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/asciisd/kyc-core.svg?style=flat-square)](https://packagist.org/packages/asciisd/kyc-core)
+[![Total Downloads](https://img.shields.io/packagist/dt/asciisd/kyc-core.svg?style=flat-square)](https://packagist.org/packages/asciisd/kyc-core)
+[![License](https://img.shields.io/packagist/l/asciisd/kyc-core.svg?style=flat-square)](https://packagist.org/packages/asciisd/kyc-core)
+
 A comprehensive Laravel package for KYC (Know Your Customer) verification management. This package provides a clean, extensible architecture for integrating multiple KYC providers.
 
 ## Features
 
-- **Driver-based Architecture**: Support for multiple KYC providers (ShuftiPro, Jumio, Onfido, etc.)
-- **Event-driven**: Fires events for verification lifecycle management
-- **Flexible Status Management**: Comprehensive status tracking and transitions
-- **Document Management**: Built-in document storage and retrieval
-- **Webhook Support**: Secure webhook handling with signature validation
-- **Validation**: Built-in validation for requests and user eligibility
-- **Logging**: Comprehensive logging for debugging and monitoring
-- **Morphable Models**: Works with any Eloquent model using morphable relationships
+-   **Driver-based Architecture**: Support for multiple KYC providers (ShuftiPro, Jumio, Onfido, etc.)
+-   **Event-driven**: Fires events for verification lifecycle management
+-   **Flexible Status Management**: Comprehensive status tracking and transitions
+-   **Document Management**: Built-in document storage and retrieval
+-   **Webhook Support**: Secure webhook handling with signature validation
+-   **Validation**: Built-in validation for requests and user eligibility
+-   **Logging**: Comprehensive logging for debugging and monitoring
+-   **Morphable Models**: Works with any Eloquent model using morphable relationships
 
 ## Installation
 
@@ -150,11 +154,11 @@ interface KycDriverInterface
 
 The package configuration allows you to:
 
-- Set default driver
-- Configure multiple drivers
-- Set verification settings
-- Define supported/restricted countries
-- Configure document storage
+-   Set default driver
+-   Configure multiple drivers
+-   Set verification settings
+-   Define supported/restricted countries
+-   Configure document storage
 
 ```php
 // config/kyc.php
