@@ -4,18 +4,21 @@
 [![Total Downloads](https://img.shields.io/packagist/dt/asciisd/kyc-core.svg?style=flat-square)](https://packagist.org/packages/asciisd/kyc-core)
 [![License](https://img.shields.io/packagist/l/asciisd/kyc-core.svg?style=flat-square)](https://packagist.org/packages/asciisd/kyc-core)
 
-A comprehensive Laravel package for KYC (Know Your Customer) verification management. This package provides a clean, extensible architecture for integrating multiple KYC providers.
+A comprehensive Laravel package for KYC (Know Your Customer) verification management. This package provides a clean, extensible architecture for integrating multiple KYC providers with **automatic infrastructure routes** and **provider-agnostic status mapping**.
 
-## Features
+## ✨ Key Features
 
--   **Driver-based Architecture**: Support for multiple KYC providers (ShuftiPro, Jumio, Onfido, etc.)
--   **Event-driven**: Fires events for verification lifecycle management
--   **Flexible Status Management**: Comprehensive status tracking and transitions
--   **Document Management**: Built-in document storage and retrieval
--   **Webhook Support**: Secure webhook handling with signature validation
--   **Validation**: Built-in validation for requests and user eligibility
--   **Logging**: Comprehensive logging for debugging and monitoring
--   **Morphable Models**: Works with any Eloquent model using morphable relationships
+-   **🚀 Zero-Config Infrastructure**: Webhook routes automatically registered - no setup required!
+-   **🔄 Provider-Agnostic Architecture**: Seamlessly switch between KYC providers (ShuftiPro, Jumio, Onfido, etc.)
+-   **🎯 Driver-Based Status Mapping**: Each provider handles its own event-to-status mapping
+-   **📡 Auto-Registered Routes**: Infrastructure routes work out-of-the-box
+-   **🎪 Event-Driven**: Comprehensive event system for verification lifecycle
+-   **📊 Smart Status Management**: Intelligent status tracking and transitions
+-   **📁 Document Management**: Built-in document storage and retrieval
+-   **🔒 Secure Webhooks**: Signature validation and comprehensive logging
+-   **✅ Built-in Validation**: Request validation and user eligibility checks
+-   **🔍 Comprehensive Logging**: Detailed logging for debugging and monitoring
+-   **🔗 Morphable Models**: Works with any Eloquent model using morphable relationships
 
 ## Installation
 
@@ -42,6 +45,81 @@ Run the migrations:
 ```bash
 php artisan migrate
 ```
+
+## 🚀 Automatic Infrastructure Routes
+
+**NEW!** The package now automatically registers infrastructure routes - no manual setup required!
+
+### Auto-Registered Routes
+
+When you install the package, these routes are automatically available:
+
+```php
+// Webhook endpoints (no authentication required)
+POST   /api/kyc/webhook                 // Main webhook handler
+POST   /api/kyc/webhook/callback        // Alternative webhook endpoint
+GET    /api/kyc/verification/complete   // Verification completion callback
+GET    /api/kyc/health                  // Health check endpoint
+
+// Backward compatibility (without /api prefix)
+POST   /kyc/webhook
+POST   /kyc/webhook/callback
+GET    /kyc/verification/complete
+GET    /kyc/health
+```
+
+### Benefits
+
+- ✅ **Zero Configuration** - Works immediately after installation
+- ✅ **Consistent Behavior** - Same webhook handling across all applications
+- ✅ **Provider Agnostic** - Works with any KYC driver
+- ✅ **Automatic Updates** - Bug fixes and improvements benefit all apps
+- ✅ **Simplified Integration** - Focus on business logic, not infrastructure
+
+### Health Check
+
+Monitor your KYC system health:
+
+```bash
+curl https://yourdomain.com/api/kyc/health
+```
+
+```json
+{
+  "success": true,
+  "message": "KYC infrastructure is healthy",
+  "default_driver": "shuftipro",
+  "available_drivers": ["shuftipro", "jumio", "onfido"],
+  "enabled_drivers": ["shuftipro"]
+}
+```
+
+## 🚀 Quick Start
+
+### Minimal Setup (3 Steps!)
+
+1. **Install the package**
+   ```bash
+   composer require asciisd/kyc-core asciisd/kyc-shuftipro
+   ```
+
+2. **Publish and run migrations**
+   ```bash
+   php artisan vendor:publish --tag=kyc-migrations
+   php artisan migrate
+   ```
+
+3. **Add trait to your User model**
+   ```php
+   use Asciisd\KycCore\Traits\HasKycVerification;
+   
+   class User extends Model
+   {
+       use HasKycVerification;
+   }
+   ```
+
+**That's it!** 🎉 Infrastructure routes are automatically registered. Just configure your KYC provider credentials and start verifying users.
 
 ## Usage
 
@@ -133,22 +211,63 @@ $label = $status->label(); // "KYC Completed"
 $color = $status->color(); // "green"
 ```
 
-## Driver Architecture
+## 🏗️ Advanced Driver Architecture
 
-The package uses a driver-based architecture, making it easy to add new KYC providers:
+The package uses a sophisticated driver-based architecture with **provider-specific status mapping**:
 
 ```php
 interface KycDriverInterface
 {
+    // Core verification methods
     public function createVerification(Model $user, KycVerificationRequest $request): KycVerificationResponse;
     public function retrieveVerification(string $reference): KycVerificationResponse;
     public function processWebhook(array $payload, array $headers = []): KycVerificationResponse;
     public function downloadDocuments(Model $user, string $reference): array;
+    
+    // Driver information
     public function getName(): string;
     public function isEnabled(): bool;
     public function getCapabilities(): array;
+    
+    // 🆕 NEW: Provider-specific status mapping
+    public function mapEventToStatus(string $event): KycStatusEnum;
 }
 ```
+
+### 🎯 Provider-Specific Status Mapping
+
+Each driver handles its own event-to-status mapping, making the system truly provider-agnostic:
+
+```php
+// ShuftiPro Driver
+public function mapEventToStatus(string $event): KycStatusEnum
+{
+    return match ($event) {
+        'verification.completed' => KycStatusEnum::Completed,
+        'verification.declined' => KycStatusEnum::Rejected,
+        'verification.pending' => KycStatusEnum::InProgress,
+        // ... ShuftiPro-specific events
+    };
+}
+
+// Jumio Driver (example)
+public function mapEventToStatus(string $event): KycStatusEnum
+{
+    return match ($event) {
+        'SUCCESS' => KycStatusEnum::Completed,
+        'ERROR' => KycStatusEnum::VerificationFailed,
+        'INITIATED' => KycStatusEnum::InProgress,
+        // ... Jumio-specific events
+    };
+}
+```
+
+### Benefits
+
+- ✅ **Provider Independence** - Each provider handles its own event mapping
+- ✅ **Easy Migration** - Switch providers without changing application logic
+- ✅ **Extensible** - Add new providers by implementing the interface
+- ✅ **Consistent** - Standardized KYC status across all providers
 
 ## Configuration
 
