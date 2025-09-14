@@ -38,6 +38,9 @@ class KycServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Load infrastructure routes
+        $this->loadRoutesFrom(__DIR__.'/../routes/kyc.php');
+
         // Publish configuration
         $this->publishes([
             __DIR__.'/../../config/kyc.php' => config_path('kyc.php'),
