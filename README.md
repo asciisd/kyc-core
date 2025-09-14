@@ -70,11 +70,11 @@ GET    /kyc/health
 
 ### Benefits
 
-- ✅ **Zero Configuration** - Works immediately after installation
-- ✅ **Consistent Behavior** - Same webhook handling across all applications
-- ✅ **Provider Agnostic** - Works with any KYC driver
-- ✅ **Automatic Updates** - Bug fixes and improvements benefit all apps
-- ✅ **Simplified Integration** - Focus on business logic, not infrastructure
+-   ✅ **Zero Configuration** - Works immediately after installation
+-   ✅ **Consistent Behavior** - Same webhook handling across all applications
+-   ✅ **Provider Agnostic** - Works with any KYC driver
+-   ✅ **Automatic Updates** - Bug fixes and improvements benefit all apps
+-   ✅ **Simplified Integration** - Focus on business logic, not infrastructure
 
 ### Health Check
 
@@ -86,11 +86,11 @@ curl https://yourdomain.com/api/kyc/health
 
 ```json
 {
-  "success": true,
-  "message": "KYC infrastructure is healthy",
-  "default_driver": "shuftipro",
-  "available_drivers": ["shuftipro", "jumio", "onfido"],
-  "enabled_drivers": ["shuftipro"]
+    "success": true,
+    "message": "KYC infrastructure is healthy",
+    "default_driver": "shuftipro",
+    "available_drivers": ["shuftipro", "jumio", "onfido"],
+    "enabled_drivers": ["shuftipro"]
 }
 ```
 
@@ -99,25 +99,28 @@ curl https://yourdomain.com/api/kyc/health
 ### Minimal Setup (3 Steps!)
 
 1. **Install the package**
-   ```bash
-   composer require asciisd/kyc-core asciisd/kyc-shuftipro
-   ```
+
+    ```bash
+    composer require asciisd/kyc-core asciisd/kyc-shuftipro
+    ```
 
 2. **Publish and run migrations**
-   ```bash
-   php artisan vendor:publish --tag=kyc-migrations
-   php artisan migrate
-   ```
+
+    ```bash
+    php artisan vendor:publish --tag=kyc-migrations
+    php artisan migrate
+    ```
 
 3. **Add trait to your User model**
-   ```php
-   use Asciisd\KycCore\Traits\HasKycVerification;
-   
-   class User extends Model
-   {
-       use HasKycVerification;
-   }
-   ```
+
+    ```php
+    use Asciisd\KycCore\Traits\HasKycVerification;
+
+    class User extends Model
+    {
+        use HasKycVerification;
+    }
+    ```
 
 **That's it!** 🎉 Infrastructure routes are automatically registered. Just configure your KYC provider credentials and start verifying users.
 
@@ -223,12 +226,12 @@ interface KycDriverInterface
     public function retrieveVerification(string $reference): KycVerificationResponse;
     public function processWebhook(array $payload, array $headers = []): KycVerificationResponse;
     public function downloadDocuments(Model $user, string $reference): array;
-    
+
     // Driver information
     public function getName(): string;
     public function isEnabled(): bool;
     public function getCapabilities(): array;
-    
+
     // 🆕 NEW: Provider-specific status mapping
     public function mapEventToStatus(string $event): KycStatusEnum;
 }
@@ -264,10 +267,10 @@ public function mapEventToStatus(string $event): KycStatusEnum
 
 ### Benefits
 
-- ✅ **Provider Independence** - Each provider handles its own event mapping
-- ✅ **Easy Migration** - Switch providers without changing application logic
-- ✅ **Extensible** - Add new providers by implementing the interface
-- ✅ **Consistent** - Standardized KYC status across all providers
+-   ✅ **Provider Independence** - Each provider handles its own event mapping
+-   ✅ **Easy Migration** - Switch providers without changing application logic
+-   ✅ **Extensible** - Add new providers by implementing the interface
+-   ✅ **Consistent** - Standardized KYC status across all providers
 
 ## Configuration
 
