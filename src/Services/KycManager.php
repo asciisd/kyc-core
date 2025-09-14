@@ -40,7 +40,7 @@ class KycManager extends Manager
         $response = $driver->createVerification($user, $request);
 
         // Update user's KYC status
-        $this->statusService->updateStatus($user, $response);
+        $this->statusService->updateStatus($user, $response, $driver);
 
         // Fire event
         event(new VerificationStarted($user, $response->reference, $driver->getName()));
@@ -57,7 +57,7 @@ class KycManager extends Manager
         $response = $driver->createSimpleVerification($user, $options);
 
         // Update user's KYC status
-        $this->statusService->updateStatus($user, $response);
+        $this->statusService->updateStatus($user, $response, $driver);
 
         // Fire event
         event(new VerificationStarted($user, $response->reference, $driver->getName()));
@@ -84,7 +84,7 @@ class KycManager extends Manager
         // Update status based on webhook response
         $kyc = Kyc::where('reference', $response->reference)->first();
         if ($kyc) {
-            $this->statusService->updateStatus($kyc->kycable, $response);
+            $this->statusService->updateStatus($kyc->kycable, $response, $driver);
         }
 
         return $response;
@@ -143,10 +143,30 @@ class KycManager extends Manager
     }
 
     /**
+     * Create ShuftiPro driver instance
+     */
+    protected function createShuftiproDriver(): KycDriverInterface
+    {
+        $driverClass = $this->config->get('kyc.drivers.shuftipro.class');
+        
+        if (!$driverClass || !class_exists($driverClass)) {
+            throw new InvalidArgumentException('ShuftiPro driver class is not configured or does not exist.');
+        }
+        
+        return $this->container->make($driverClass);
+    }
+
+    /**
      * Create driver instance
      */
     protected function createDriver($driver): KycDriverInterface
     {
+        $method = 'create'.ucfirst($driver).'Driver';
+
+        if (method_exists($this, $method)) {
+            return $this->$method();
+        }
+
         $driverClass = $this->config->get("kyc.drivers.{$driver}.class");
 
         if (! $driverClass) {

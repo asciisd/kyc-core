@@ -249,7 +249,7 @@ class KycTest extends TestCase
             'reference' => 'test_ref',
         ]);
 
-        $this->assertEquals('shuftipro', $kyc->getDriver());
+        $this->assertEquals('test', $kyc->getDriver());
     }
 
     public function test_uses_driver()

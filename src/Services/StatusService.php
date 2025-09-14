@@ -2,6 +2,7 @@
 
 namespace Asciisd\KycCore\Services;
 
+use Asciisd\KycCore\Contracts\KycDriverInterface;
 use Asciisd\KycCore\DTOs\KycVerificationResponse;
 use Asciisd\KycCore\Enums\KycStatusEnum;
 use Asciisd\KycCore\Events\VerificationCompleted;
@@ -15,11 +16,11 @@ class StatusService
     /**
      * Update KYC status based on verification response
      */
-    public function updateStatus(Model $user, KycVerificationResponse $response): void
+    public function updateStatus(Model $user, KycVerificationResponse $response, KycDriverInterface $driver): void
     {
-        $kyc = $this->findOrCreateKyc($user);
+        $kyc = $this->findOrCreateKyc($user, $response->reference);
 
-        $status = $this->mapResponseToStatus($response);
+        $status = $driver->mapEventToStatus($response->event);
         $data = $this->extractDataFromResponse($response);
 
         $kyc->updateKycStatus($status, $data, null, $response->reference);
@@ -32,42 +33,41 @@ class StatusService
             'reference' => $response->reference,
             'status' => $status->value,
             'event' => $response->event,
+            'driver' => $driver->getName(),
         ]);
     }
 
     /**
      * Find existing KYC record or create new one
      */
-    private function findOrCreateKyc(Model $user): Kyc
+    private function findOrCreateKyc(Model $user, ?string $reference = null): Kyc
     {
-        return Kyc::where('kycable_id', $user->getKey())
+        // First try to find by reference if provided
+        if ($reference) {
+            $kyc = Kyc::where('reference', $reference)->first();
+            if ($kyc) {
+                return $kyc;
+            }
+        }
+
+        // Then try to find existing KYC for user
+        $kyc = Kyc::where('kycable_id', $user->getKey())
             ->where('kycable_type', $user::class)
-            ->firstOrCreate([
-                'kycable_id' => $user->getKey(),
-                'kycable_type' => $user::class,
-                'reference' => 'temp_ref_' . uniqid(),
-            ]);
+            ->first();
+
+        if ($kyc) {
+            return $kyc;
+        }
+
+        // Create new KYC record
+        return Kyc::create([
+            'kycable_id' => $user->getKey(),
+            'kycable_type' => $user::class,
+            'reference' => $reference ?? 'temp_ref_' . uniqid(),
+            'status' => KycStatusEnum::NotStarted,
+        ]);
     }
 
-    /**
-     * Map verification response to KYC status
-     */
-    private function mapResponseToStatus(KycVerificationResponse $response): KycStatusEnum
-    {
-        return match ($response->event) {
-            'request.pending' => KycStatusEnum::RequestPending,
-            'verification.pending' => KycStatusEnum::InProgress,
-            'verification.in_progress' => KycStatusEnum::InProgress,
-            'verification.review_pending' => KycStatusEnum::ReviewPending,
-            'verification.completed' => KycStatusEnum::Completed,
-            'verification.approved' => KycStatusEnum::Completed,
-            'verification.failed' => KycStatusEnum::VerificationFailed,
-            'verification.declined' => KycStatusEnum::Rejected,
-            'verification.cancelled' => KycStatusEnum::VerificationCancelled,
-            'request.timeout' => KycStatusEnum::RequestTimeout,
-            default => KycStatusEnum::InProgress,
-        };
-    }
 
     /**
      * Extract relevant data from verification response
@@ -107,6 +107,19 @@ class StatusService
 
         if ($response->message) {
             $data['message'] = $response->message;
+        }
+
+        // Store additional ShuftiPro specific data from raw response
+        if ($response->rawResponse) {
+            if (isset($response->rawResponse['verification_data'])) {
+                $data['verification_data'] = $response->rawResponse['verification_data'];
+            }
+            if (isset($response->rawResponse['verification_result'])) {
+                $data['verification_result'] = $response->rawResponse['verification_result'];
+            }
+            if (isset($response->rawResponse['info'])) {
+                $data['info'] = $response->rawResponse['info'];
+            }
         }
 
         $data['last_webhook_event'] = $response->event;

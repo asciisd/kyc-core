@@ -2,6 +2,7 @@
 
 namespace Asciisd\KycCore\Tests\Unit\Services;
 
+use Asciisd\KycCore\Contracts\KycDriverInterface;
 use Asciisd\KycCore\DTOs\KycVerificationResponse;
 use Asciisd\KycCore\Enums\KycStatusEnum;
 use Asciisd\KycCore\Models\Kyc;
@@ -13,12 +14,14 @@ use Illuminate\Support\Facades\Event;
 class StatusServiceTest extends TestCase
 {
     private StatusService $statusService;
+    private KycDriverInterface $driver;
 
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->statusService = $this->app->make(StatusService::class);
+        $this->driver = new TestDriverForStatusService();
     }
 
     public function test_update_status_creates_kyc_record()
@@ -33,7 +36,7 @@ class StatusServiceTest extends TestCase
             verificationUrl: 'https://test.url'
         );
 
-        $this->statusService->updateStatus($user, $response);
+        $this->statusService->updateStatus($user, $response, $this->driver);
 
         $kyc = Kyc::where('kycable_id', $user->getKey())
             ->where('kycable_type', $user::class)
@@ -67,7 +70,7 @@ class StatusServiceTest extends TestCase
             extractedData: ['name' => 'John Doe']
         );
 
-        $this->statusService->updateStatus($user, $response);
+        $this->statusService->updateStatus($user, $response, $this->driver);
 
         $kyc->refresh();
         $this->assertEquals(KycStatusEnum::Completed, $kyc->status);
@@ -82,7 +85,7 @@ class StatusServiceTest extends TestCase
             ['verification.pending', KycStatusEnum::InProgress],
             ['verification.in_progress', KycStatusEnum::InProgress],
             ['verification.review_pending', KycStatusEnum::ReviewPending],
-            ['verification.completed', KycStatusEnum::VerificationCompleted],
+            ['verification.completed', KycStatusEnum::Completed],
             ['verification.approved', KycStatusEnum::Completed],
             ['verification.failed', KycStatusEnum::VerificationFailed],
             ['verification.declined', KycStatusEnum::Rejected],
@@ -99,7 +102,7 @@ class StatusServiceTest extends TestCase
                 success: true
             );
 
-            $this->statusService->updateStatus($user, $response);
+            $this->statusService->updateStatus($user, $response, $this->driver);
 
             $kyc = Kyc::where('kycable_id', $user->getKey())->first();
             $this->assertEquals($expectedStatus, $kyc->status, "Failed for event: {$event}");
@@ -119,11 +122,11 @@ class StatusServiceTest extends TestCase
             documentImages: ['front.jpg', 'back.jpg'],
             country: 'US',
             duplicateDetected: false,
-            declineReason: null,
+            declineReason: 'Test decline reason',
             message: 'Verification completed successfully'
         );
 
-        $this->statusService->updateStatus($user, $response);
+        $this->statusService->updateStatus($user, $response, $this->driver);
 
         $kyc = Kyc::where('kycable_id', $user->getKey())->first();
         $data = $kyc->data;
@@ -153,7 +156,7 @@ class StatusServiceTest extends TestCase
             success: true
         );
 
-        $this->statusService->updateStatus($user, $completedResponse);
+        $this->statusService->updateStatus($user, $completedResponse, $this->driver);
 
         Event::assertDispatched(\Asciisd\KycCore\Events\VerificationCompleted::class);
 
@@ -164,7 +167,7 @@ class StatusServiceTest extends TestCase
             success: false
         );
 
-        $this->statusService->updateStatus($user, $failedResponse);
+        $this->statusService->updateStatus($user, $failedResponse, $this->driver);
 
         Event::assertDispatched(\Asciisd\KycCore\Events\VerificationFailed::class);
     }
@@ -272,6 +275,87 @@ class StatusServiceTest extends TestCase
             {
                 return 'User';
             }
+        };
+    }
+}
+
+class TestDriverForStatusService implements KycDriverInterface
+{
+    public function createVerification(\Illuminate\Database\Eloquent\Model $user, \Asciisd\KycCore\DTOs\KycVerificationRequest $request): \Asciisd\KycCore\DTOs\KycVerificationResponse
+    {
+        return new \Asciisd\KycCore\DTOs\KycVerificationResponse('test_ref', 'request.pending', true);
+    }
+
+    public function createSimpleVerification(\Illuminate\Database\Eloquent\Model $user, array $options = []): \Asciisd\KycCore\DTOs\KycVerificationResponse
+    {
+        return new \Asciisd\KycCore\DTOs\KycVerificationResponse('test_ref', 'request.pending', true);
+    }
+
+    public function retrieveVerification(string $reference): \Asciisd\KycCore\DTOs\KycVerificationResponse
+    {
+        return new \Asciisd\KycCore\DTOs\KycVerificationResponse($reference, 'verification.completed', true);
+    }
+
+    public function canResumeVerification(string $reference): bool
+    {
+        return true;
+    }
+
+    public function getVerificationUrl(string $reference): ?string
+    {
+        return 'https://test.url';
+    }
+
+    public function processWebhook(array $payload, array $headers = []): \Asciisd\KycCore\DTOs\KycVerificationResponse
+    {
+        return new \Asciisd\KycCore\DTOs\KycVerificationResponse('test_ref', 'verification.completed', true);
+    }
+
+    public function validateWebhookSignature(array $payload, array $headers): bool
+    {
+        return true;
+    }
+
+    public function downloadDocuments(\Illuminate\Database\Eloquent\Model $user, string $reference): array
+    {
+        return [];
+    }
+
+    public function getConfig(): array
+    {
+        return [];
+    }
+
+    public function getName(): string
+    {
+        return 'test';
+    }
+
+    public function isEnabled(): bool
+    {
+        return true;
+    }
+
+    public function getCapabilities(): array
+    {
+        return [];
+    }
+
+    public function mapEventToStatus(string $event): KycStatusEnum
+    {
+        return match ($event) {
+            'request.pending' => KycStatusEnum::RequestPending,
+            'verification.pending' => KycStatusEnum::InProgress,
+            'verification.in_progress' => KycStatusEnum::InProgress,
+            'verification.review_pending' => KycStatusEnum::ReviewPending,
+            'verification.completed' => KycStatusEnum::Completed,
+            'verification.approved' => KycStatusEnum::Completed,
+            'verification.accepted' => KycStatusEnum::VerificationCompleted,
+            'verification.failed' => KycStatusEnum::VerificationFailed,
+            'verification.declined' => KycStatusEnum::Rejected,
+            'verification.cancelled' => KycStatusEnum::VerificationCancelled,
+            'request.timeout' => KycStatusEnum::RequestTimeout,
+            default => KycStatusEnum::InProgress,
         };
     }
 }

@@ -97,6 +97,12 @@ class Kyc extends Model
             $updateData['reference'] = $reference;
         }
 
+        // Set started_at when verification begins (first time moving from NotStarted)
+        if ($this->status === KycStatusEnum::NotStarted && $status->isInProgress() && !$this->started_at) {
+            $updateData['started_at'] = now();
+        }
+
+        // Set completed_at when verification is completed
         if ($status->isCompleted()) {
             $updateData['completed_at'] = now();
         }

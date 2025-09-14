@@ -67,4 +67,9 @@ interface KycDriverInterface
      * Get driver capabilities
      */
     public function getCapabilities(): array;
+
+    /**
+     * Map provider-specific event to standardized KYC status
+     */
+    public function mapEventToStatus(string $event): \Asciisd\KycCore\Enums\KycStatusEnum;
 }

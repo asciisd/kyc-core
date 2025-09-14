@@ -37,7 +37,7 @@ abstract class TestCase extends OrchestraTestCase
 
         // Setup KYC configuration
         $app['config']->set('kyc', [
-            'default_driver' => 'shuftipro',
+            'default_driver' => 'test',
             'drivers' => [
                 'test' => [
                     'name' => 'Test Driver',
@@ -161,5 +161,16 @@ class TestDriver implements \Asciisd\KycCore\Contracts\KycDriverInterface
             'webhook_callbacks' => true,
             'document_download' => true,
         ];
+    }
+
+    public function mapEventToStatus(string $event): \Asciisd\KycCore\Enums\KycStatusEnum
+    {
+        return match ($event) {
+            'request.pending' => \Asciisd\KycCore\Enums\KycStatusEnum::RequestPending,
+            'verification.pending' => \Asciisd\KycCore\Enums\KycStatusEnum::InProgress,
+            'verification.completed' => \Asciisd\KycCore\Enums\KycStatusEnum::Completed,
+            'verification.failed' => \Asciisd\KycCore\Enums\KycStatusEnum::VerificationFailed,
+            default => \Asciisd\KycCore\Enums\KycStatusEnum::InProgress,
+        };
     }
 }
