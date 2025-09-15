@@ -16,6 +16,14 @@ trait HasKycVerification
     }
 
     /**
+     * Get the user's latest KYC verification (most recent).
+     */
+    public function latestKyc(): ?Kyc
+    {
+        return $this->morphOne(Kyc::class, 'kycable')->latest()->first();
+    }
+
+    /**
      * Check if user can start KYC process
      */
     public function canStartKyc(): bool
@@ -30,13 +38,13 @@ trait HasKycVerification
     }
 
     /**
-     * Check if user needs to complete KYC verification
+     * Check if user needs to complete KYC verification (includes both start and resume scenarios)
      */
     public function needsKycVerification(): bool
     {
         $kyc = $this->kyc;
 
-        return $kyc === null || $kyc->status->needsAction();
+        return $kyc === null || $kyc->status->needsKycVerificationOrResume();
     }
 
     /**

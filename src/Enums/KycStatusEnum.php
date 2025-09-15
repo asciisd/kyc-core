@@ -99,6 +99,25 @@ enum KycStatusEnum: string
     }
 
     /**
+     * Check if verification can be resumed
+     */
+    public function canBeResumed(): bool
+    {
+        return in_array($this, [
+            self::InProgress,
+            self::RequestPending,
+        ]);
+    }
+
+    /**
+     * Check if this status needs KYC verification (either start or resume)
+     */
+    public function needsKycVerificationOrResume(): bool
+    {
+        return $this->needsAction() || $this->canBeResumed();
+    }
+
+    /**
      * Check if verification is in progress
      */
     public function isInProgress(): bool

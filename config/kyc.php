@@ -98,6 +98,12 @@ return [
         'document_storage_path' => env('KYC_DOCUMENT_STORAGE_PATH', 'kyc/documents'),
         'enable_duplicate_detection' => env('KYC_ENABLE_DUPLICATE_DETECTION', true),
         'webhook_signature_validation' => env('KYC_WEBHOOK_SIGNATURE_VALIDATION', true),
+        
+        // Resume and timeout settings
+        'verification_timeout_hours' => env('KYC_VERIFICATION_TIMEOUT_HOURS', 72),
+        'enable_resume_functionality' => env('KYC_ENABLE_RESUME', true),
+        'max_resume_attempts' => env('KYC_MAX_RESUME_ATTEMPTS', 5),
+        'resume_url_refresh_threshold_hours' => env('KYC_RESUME_URL_REFRESH_HOURS', 12),
     ],
 
     /*

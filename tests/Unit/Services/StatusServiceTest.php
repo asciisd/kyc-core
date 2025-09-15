@@ -277,8 +277,15 @@ class StatusServiceTest extends TestCase
 
         $this->assertTrue($this->statusService->needsKycVerification($user));
 
-        // Update to completed status
+        // Test resumable statuses - should also need verification
         $kyc = Kyc::where('kycable_id', $user->getKey())->first();
+        $kyc->update(['status' => KycStatusEnum::InProgress]);
+        $this->assertTrue($this->statusService->needsKycVerification($user));
+
+        $kyc->update(['status' => KycStatusEnum::RequestPending]);
+        $this->assertTrue($this->statusService->needsKycVerification($user));
+
+        // Update to completed status
         $kyc->update(['status' => KycStatusEnum::Completed]);
 
         $this->assertFalse($this->statusService->needsKycVerification($user));

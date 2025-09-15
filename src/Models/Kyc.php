@@ -74,8 +74,8 @@ class Kyc extends Model
      */
     public function canResumeKyc(): bool
     {
-        return $this->status === KycStatusEnum::InProgress &&
-               $this->getActiveVerificationUrl() !== null;
+        return $this->status->canBeResumed() &&
+               ($this->getActiveVerificationUrl() !== null || $this->reference !== null);
     }
 
     /**
@@ -137,6 +137,16 @@ class Kyc extends Model
         }
 
         $this->update($updateData);
+    }
+
+    /**
+     * Update KYC data without changing status
+     */
+    public function updateKycData(array $data): void
+    {
+        $this->update([
+            'data' => array_merge($this->data ?? [], $data),
+        ]);
     }
 
     /**

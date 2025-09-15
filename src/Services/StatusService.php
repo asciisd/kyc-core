@@ -125,12 +125,12 @@ class StatusService
     }
 
     /**
-     * Check if user needs to complete KYC
+     * Check if user needs to complete KYC verification (includes both start and resume scenarios)
      */
     public function needsKycVerification(Model $user): bool
     {
         $status = $this->getCurrentStatus($user);
 
-        return $status === null || $status->needsAction();
+        return $status === null || $status->needsKycVerificationOrResume();
     }
 }

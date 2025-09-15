@@ -47,6 +47,33 @@ class KycStatusEnumTest extends TestCase
         }
     }
 
+    public function test_can_be_resumed_status()
+    {
+        $resumableStatuses = [
+            KycStatusEnum::InProgress,
+            KycStatusEnum::RequestPending,
+        ];
+
+        $nonResumableStatuses = [
+            KycStatusEnum::NotStarted,
+            KycStatusEnum::ReviewPending,
+            KycStatusEnum::VerificationCompleted,
+            KycStatusEnum::VerificationFailed,
+            KycStatusEnum::VerificationCancelled,
+            KycStatusEnum::RequestTimeout,
+            KycStatusEnum::Completed,
+            KycStatusEnum::Rejected,
+        ];
+
+        foreach ($resumableStatuses as $status) {
+            $this->assertTrue($status->canBeResumed(), "Status {$status->value} should be resumable");
+        }
+
+        foreach ($nonResumableStatuses as $status) {
+            $this->assertFalse($status->canBeResumed(), "Status {$status->value} should not be resumable");
+        }
+    }
+
     public function test_all_status_descriptions()
     {
         $expectedDescriptions = [
@@ -249,5 +276,34 @@ class KycStatusEnumTest extends TestCase
         $status = KycStatusEnum::tryFrom('invalid_status');
 
         $this->assertNull($status);
+    }
+
+    public function test_needs_kyc_verification_or_resume_statuses()
+    {
+        $statusesThatNeedVerificationOrResume = [
+            // Statuses that need action (fresh start)
+            KycStatusEnum::NotStarted,
+            KycStatusEnum::VerificationFailed,
+            KycStatusEnum::VerificationCancelled,
+            KycStatusEnum::RequestTimeout,
+            // Statuses that can be resumed
+            KycStatusEnum::InProgress,
+            KycStatusEnum::RequestPending,
+        ];
+
+        $statusesThatDontNeedVerificationOrResume = [
+            KycStatusEnum::ReviewPending,
+            KycStatusEnum::VerificationCompleted,
+            KycStatusEnum::Completed,
+            KycStatusEnum::Rejected,
+        ];
+
+        foreach ($statusesThatNeedVerificationOrResume as $status) {
+            $this->assertTrue($status->needsKycVerificationOrResume(), "Status {$status->value} should need verification or resume");
+        }
+
+        foreach ($statusesThatDontNeedVerificationOrResume as $status) {
+            $this->assertFalse($status->needsKycVerificationOrResume(), "Status {$status->value} should not need verification or resume");
+        }
     }
 }
