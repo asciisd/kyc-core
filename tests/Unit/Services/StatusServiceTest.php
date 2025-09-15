@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Event;
 class StatusServiceTest extends TestCase
 {
     private StatusService $statusService;
+
     private KycDriverInterface $driver;
 
     protected function setUp(): void
@@ -21,7 +22,7 @@ class StatusServiceTest extends TestCase
         parent::setUp();
 
         $this->statusService = $this->app->make(StatusService::class);
-        $this->driver = new TestDriverForStatusService();
+        $this->driver = new TestDriverForStatusService;
     }
 
     public function test_update_status_creates_kyc_record()
@@ -112,6 +113,23 @@ class StatusServiceTest extends TestCase
     public function test_extract_data_from_response()
     {
         $user = $this->createTestUser();
+        $rawResponse = [
+            'event' => 'verification.completed',
+            'reference' => 'test_ref_123',
+            'verification_data' => [
+                'document' => ['name' => 'John Doe', 'dob' => '1990-01-01'],
+                'face' => ['confidence' => 0.95],
+            ],
+            'verification_result' => [
+                'document' => 1,
+                'face' => 1,
+            ],
+            'info' => [
+                'supported_countries' => ['US', 'UK'],
+                'journey_id' => 'journey_123',
+            ],
+        ];
+
         $response = new KycVerificationResponse(
             reference: 'test_ref_123',
             event: 'verification.completed',
@@ -123,7 +141,8 @@ class StatusServiceTest extends TestCase
             country: 'US',
             duplicateDetected: false,
             declineReason: 'Test decline reason',
-            message: 'Verification completed successfully'
+            message: 'Verification completed successfully',
+            rawResponse: $rawResponse
         );
 
         $this->statusService->updateStatus($user, $response, $this->driver);
@@ -141,6 +160,13 @@ class StatusServiceTest extends TestCase
         $this->assertArrayHasKey('message', $data);
         $this->assertArrayHasKey('last_webhook_event', $data);
         $this->assertArrayHasKey('last_webhook_at', $data);
+
+        // Verify complete raw response is stored
+        $this->assertArrayHasKey('raw_response', $data);
+        $this->assertEquals($rawResponse, $data['raw_response']);
+        $this->assertArrayHasKey('verification_data', $data['raw_response']);
+        $this->assertArrayHasKey('verification_result', $data['raw_response']);
+        $this->assertArrayHasKey('info', $data['raw_response']);
     }
 
     public function test_fire_status_events()

@@ -61,7 +61,7 @@ class KycWebhookController
     /**
      * Handle KYC verification completion callbacks
      */
-    public function complete(Request $request): JsonResponse
+    public function complete(Request $request)
     {
         try {
             $reference = $request->query('reference');
@@ -73,38 +73,78 @@ class KycWebhookController
                 'query_params' => $request->query(),
             ]);
 
-            if (!$reference) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Reference parameter is required',
-                ], 400);
+            if (! $reference) {
+                if ($request->expectsJson()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Reference parameter is required',
+                    ], 400);
+                }
+
+                // Redirect to KYC page with error for non-JSON requests
+                return redirect()->route('kyc.index')->withErrors([
+                    'kyc' => 'Verification reference is missing. Please try again.',
+                ]);
             }
 
             // Find the KYC record
             $kyc = Kyc::where('reference', $reference)->first();
-            
-            if (!$kyc) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'KYC record not found',
-                ], 404);
+
+            if (! $kyc) {
+                if ($request->expectsJson()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'KYC record not found',
+                    ], 404);
+                }
+
+                // Redirect to KYC page with error for non-JSON requests
+                return redirect()->route('kyc.index')->withErrors([
+                    'kyc' => 'Verification record not found. Please contact support.',
+                ]);
             }
 
-            // Get the verification status from the provider
+            // Get the verification status from the provider and update the record
             $result = $this->kycManager->retrieveVerification($reference);
+
+            // Get the driver to properly map the event to status and update the KYC record
+            $driver = $this->kycManager->driver($kyc->driver);
+            $mappedStatus = $driver->mapEventToStatus($result->event);
+
+            // Store the complete response data directly with completion metadata
+            $data = array_merge($result->toArray(), [
+                'last_completion_at' => now()->toISOString(),
+                'completion_status' => $status,
+            ]);
+
+            // Update the KYC record with the complete data
+            $kyc->updateKycStatus($mappedStatus, $data);
 
             Log::info('KYC Verification completion processed', [
                 'reference' => $reference,
-                'current_status' => $kyc->status->value,
-                'provider_status' => $result->event,
+                'previous_status' => $kyc->getOriginal('status'),
+                'new_status' => $mappedStatus->value,
+                'provider_event' => $result->event,
+                'response_keys' => array_keys($result->toArray()),
             ]);
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Verification completion processed',
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Verification completion processed',
+                    'reference' => $reference,
+                    'status' => $mappedStatus->value,
+                    'data' => $data,
+                ]);
+            }
+
+            // For non-JSON requests, redirect to the application's KYC callback page
+            return redirect()->route('kyc.index')->with([
+                'success' => 'Verification completed successfully!',
+                'kyc_status' => $mappedStatus->value,
                 'reference' => $reference,
-                'status' => $kyc->status->value,
             ]);
+
         } catch (\Exception $e) {
             Log::error('KYC Verification completion failed', [
                 'error' => $e->getMessage(),
@@ -112,11 +152,18 @@ class KycWebhookController
                 'reference' => $request->query('reference'),
             ]);
 
-            return response()->json([
-                'success' => false,
-                'message' => 'Verification completion processing failed',
-                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
-            ], 500);
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Verification completion processing failed',
+                    'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
+                ], 500);
+            }
+
+            // Redirect to KYC page with error for non-JSON requests
+            return redirect()->route('kyc.index')->withErrors([
+                'kyc' => 'Verification processing failed. Please contact support if the issue persists.',
+            ]);
         }
     }
 
@@ -128,14 +175,14 @@ class KycWebhookController
         try {
             $drivers = $this->kycManager->getAvailableDrivers();
             $defaultDriver = $this->kycManager->getDefaultDriver();
-            
+
             return response()->json([
                 'success' => true,
                 'message' => 'KYC infrastructure is healthy',
                 'default_driver' => $defaultDriver,
                 'available_drivers' => array_keys($drivers),
                 'enabled_drivers' => collect($drivers)
-                    ->filter(fn($config) => $config['enabled'] ?? false)
+                    ->filter(fn ($config) => $config['enabled'] ?? false)
                     ->keys()
                     ->toArray(),
             ]);

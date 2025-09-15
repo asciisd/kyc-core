@@ -63,69 +63,21 @@ class StatusService
         return Kyc::create([
             'kycable_id' => $user->getKey(),
             'kycable_type' => $user::class,
-            'reference' => $reference ?? 'temp_ref_' . uniqid(),
+            'reference' => $reference ?? 'temp_ref_'.uniqid(),
             'status' => KycStatusEnum::NotStarted,
         ]);
     }
-
 
     /**
      * Extract relevant data from verification response
      */
     private function extractDataFromResponse(KycVerificationResponse $response): array
     {
-        $data = [];
-
-        if ($response->verificationUrl) {
-            $data['verification_url'] = $response->verificationUrl;
-            $data['verification_url_created_at'] = now()->toISOString();
-        }
-
-        if ($response->extractedData) {
-            $data['extracted_data'] = $response->extractedData;
-        }
-
-        if ($response->verificationResults) {
-            $data['verification_results'] = $response->verificationResults;
-        }
-
-        if ($response->documentImages) {
-            $data['document_images'] = $response->documentImages;
-        }
-
-        if ($response->country) {
-            $data['country'] = $response->country;
-        }
-
-        if ($response->duplicateDetected !== null) {
-            $data['duplicate_detected'] = $response->duplicateDetected;
-        }
-
-        if ($response->declineReason) {
-            $data['decline_reason'] = $response->declineReason;
-        }
-
-        if ($response->message) {
-            $data['message'] = $response->message;
-        }
-
-        // Store additional ShuftiPro specific data from raw response
-        if ($response->rawResponse) {
-            if (isset($response->rawResponse['verification_data'])) {
-                $data['verification_data'] = $response->rawResponse['verification_data'];
-            }
-            if (isset($response->rawResponse['verification_result'])) {
-                $data['verification_result'] = $response->rawResponse['verification_result'];
-            }
-            if (isset($response->rawResponse['info'])) {
-                $data['info'] = $response->rawResponse['info'];
-            }
-        }
-
-        $data['last_webhook_event'] = $response->event;
-        $data['last_webhook_at'] = now()->toISOString();
-
-        return $data;
+        // Store the complete response data directly with webhook metadata
+        return array_merge($response->toArray(), [
+            'last_webhook_event' => $response->event,
+            'last_webhook_at' => now()->toISOString(),
+        ]);
     }
 
     /**
