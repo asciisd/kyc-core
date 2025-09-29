@@ -169,13 +169,85 @@ class KycManager extends Manager
         $driver = $this->driver();
         $response = $driver->processWebhook($payload, $headers);
 
-        // Update status based on webhook response
+        // Find KYC record by reference
         $kyc = Kyc::where('reference', $response->reference)->first();
-        if ($kyc) {
+        if (!$kyc) {
+            throw new \InvalidArgumentException("KYC record not found for reference: {$response->reference}");
+        }
+
+        // Handle special data change events with deep merging
+        $event = $payload['event'] ?? null;
+        if ($event === 'request.data.changed') {
+            $this->handleDataChangedEvent($kyc, $payload, $response);
+        } else {
+            // Standard webhook processing
             $this->statusService->updateStatus($kyc->kycable, $response, $driver);
         }
 
         return $response;
+    }
+
+    /**
+     * Handle request.data.changed event with deep data merging
+     */
+    protected function handleDataChangedEvent(Kyc $kyc, array $payload, KycVerificationResponse $response): void
+    {
+        $verificationData = $payload['verification_data'] ?? [];
+        
+        if (empty($verificationData)) {
+            \Illuminate\Support\Facades\Log::warning('No verification_data in request.data.changed event', [
+                'reference' => $kyc->reference,
+                'payload' => $payload,
+            ]);
+            return;
+        }
+
+        // Get existing KYC data
+        $existingData = $kyc->data ?? [];
+        if (is_string($existingData)) {
+            $existingData = json_decode($existingData, true) ?? [];
+        }
+
+        // Deep merge the new verification data with existing data
+        $mergedData = $this->deepMergeKycData($existingData, [
+            'verification_data' => $verificationData,
+            'last_webhook_event' => $payload['event'],
+            'last_webhook_at' => now()->toISOString(),
+            'data_updated_at' => now()->toISOString(),
+        ]);
+
+        // Update KYC record with merged data (preserve existing status)
+        $kyc->update([
+            'data' => $mergedData,
+        ]);
+
+        // Trigger user data population if KYC is completed
+        if ($kyc->kycable && method_exists($kyc->kycable, 'populateFromKyc') && $kyc->status->isCompleted()) {
+            $kyc->kycable->populateFromKyc();
+        }
+
+        \Illuminate\Support\Facades\Log::info('KYC data updated successfully via request.data.changed', [
+            'reference' => $kyc->reference,
+            'updated_fields' => array_keys($verificationData),
+        ]);
+    }
+
+    /**
+     * Deep merge KYC data arrays, preserving existing data while updating with new values
+     */
+    protected function deepMergeKycData(array $existing, array $new): array
+    {
+        foreach ($new as $key => $value) {
+            if (is_array($value) && isset($existing[$key]) && is_array($existing[$key])) {
+                // Recursively merge nested arrays
+                $existing[$key] = $this->deepMergeKycData($existing[$key], $value);
+            } else {
+                // Overwrite or add new values
+                $existing[$key] = $value;
+            }
+        }
+
+        return $existing;
     }
 
     /**
