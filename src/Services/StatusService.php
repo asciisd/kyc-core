@@ -20,18 +20,26 @@ class StatusService
     {
         $kyc = $this->findOrCreateKyc($user, $response->reference);
 
+        // Capture the previous status before updating
+        $previousStatus = $kyc->status;
+
         $status = $driver->mapEventToStatus($response->event);
         $data = $this->extractDataFromResponse($response);
 
         $kyc->updateKycStatus($status, $data, null, $response->reference);
 
-        // Fire appropriate events
-        $this->fireStatusEvents($user, $response, $status);
+        // Fire appropriate events only if status changed
+        $statusChanged = $previousStatus !== $status;
+        if ($statusChanged) {
+            $this->fireStatusEvents($user, $response, $status);
+        }
 
         Log::info('KYC status updated', [
             'user_id' => $user->getKey(),
             'reference' => $response->reference,
-            'status' => $status->value,
+            'previous_status' => $previousStatus->value,
+            'new_status' => $status->value,
+            'status_changed' => $statusChanged,
             'event' => $response->event,
             'driver' => $driver->getName(),
         ]);
