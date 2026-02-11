@@ -97,8 +97,8 @@ return [
         'document_storage_disk' => env('KYC_DOCUMENT_STORAGE_DISK', 's3'),
         'document_storage_path' => env('KYC_DOCUMENT_STORAGE_PATH', 'kyc/documents'),
         'enable_duplicate_detection' => env('KYC_ENABLE_DUPLICATE_DETECTION', true),
-        'webhook_signature_validation' => env('KYC_WEBHOOK_SIGNATURE_VALIDATION', true),
-        
+        'webhook_signature_validation' => env('KYC_WEBHOOK_SIGNATURE_VALIDATION', false),
+
         // Resume and timeout settings
         'verification_timeout_hours' => env('KYC_VERIFICATION_TIMEOUT_HOURS', 72),
         'enable_resume_functionality' => env('KYC_ENABLE_RESUME', true),
