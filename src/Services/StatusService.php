@@ -5,6 +5,7 @@ namespace Asciisd\KycCore\Services;
 use Asciisd\KycCore\Contracts\KycDriverInterface;
 use Asciisd\KycCore\DTOs\KycVerificationResponse;
 use Asciisd\KycCore\Enums\KycStatusEnum;
+use Asciisd\KycCore\Events\KycStatusChanged;
 use Asciisd\KycCore\Events\VerificationCompleted;
 use Asciisd\KycCore\Events\VerificationFailed;
 use Asciisd\KycCore\Models\Kyc;
@@ -31,6 +32,7 @@ class StatusService
         // Fire appropriate events only if status changed
         $statusChanged = $previousStatus !== $status;
         if ($statusChanged) {
+            event(new KycStatusChanged($user, $response->reference, $previousStatus, $status, $response));
             $this->fireStatusEvents($user, $response, $status);
         }
 
