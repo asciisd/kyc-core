@@ -65,9 +65,10 @@ Add `Asciisd\KycCore\Traits\HasKycVerification` to models that need KYC. Provide
 
 ### Events
 
+- `KycStatusChanged` — Dispatched on every status transition, carries `$user`, `$previousStatus`, `$newStatus`, and `$response`.
 - `VerificationStarted` — Dispatched when verification begins.
-- `VerificationCompleted` — Dispatched on successful verification.
-- `VerificationFailed` — Dispatched on failed verification.
+- `VerificationCompleted` — Dispatched on successful verification (after `KycStatusChanged`).
+- `VerificationFailed` — Dispatched on failed verification (after `KycStatusChanged`).
 
 ### Config
 

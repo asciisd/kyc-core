@@ -27,6 +27,7 @@ Enums/
 └── KycStatusEnum               — NotStarted, InProgress, Completed, Failed, etc.
 
 Events/
+├── KycStatusChanged            — Dispatched on every status transition
 ├── VerificationStarted         — Dispatched when verification begins
 ├── VerificationCompleted       — Dispatched on successful verification
 └── VerificationFailed          — Dispatched on failed verification
@@ -61,7 +62,7 @@ Transformers/
 Use this skill when:
 - Creating or modifying KYC driver implementations
 - Working with KYC verification flows (start, resume, webhook)
-- Handling KYC webhook events (`VerificationCompleted`, `VerificationFailed`)
+- Handling KYC webhook events (`KycStatusChanged`, `VerificationCompleted`, `VerificationFailed`)
 - Implementing data transformers for KYC providers
 - Configuring `kyc.php` or adding new KYC drivers
 - Working with the `Kyc` model or `HasKycVerification` trait
@@ -77,7 +78,8 @@ Use this skill when:
 5. Provider sends webhook to `api/kyc/webhook`
 6. `KycWebhookController` validates, parses, dispatches events
 7. `KycManager` updates KYC model status and data
-8. Application listeners handle `VerificationCompleted` / `VerificationFailed`
+8. `StatusService` fires `KycStatusChanged` on every status transition, then `VerificationCompleted` / `VerificationFailed` for terminal statuses
+9. Application listeners handle events (e.g. admin notifications on any change, data population on completion)
 
 ## Creating a KYC Driver
 
@@ -269,9 +271,28 @@ Provides: `kyc()`, `latestKyc()`, `canStartKyc()`, `needsKycVerification()`, `ha
 
 ### Event Listeners
 
+`KycStatusChanged` fires on **every** status transition (before the specific events). Use it for cross-cutting concerns like admin notifications:
+
+```php
+use Asciisd\KycCore\Events\KycStatusChanged;
+
+class HandleKycStatusChanged
+{
+    public function handle(KycStatusChanged $event): void
+    {
+        $user = $event->user;
+        $reference = $event->reference;
+        $previousStatus = $event->previousStatus; // KycStatusEnum
+        $newStatus = $event->newStatus;            // KycStatusEnum
+        $response = $event->response;              // KycVerificationResponse
+    }
+}
+```
+
+`VerificationCompleted` and `VerificationFailed` fire only for terminal statuses:
+
 ```php
 use Asciisd\KycCore\Events\VerificationCompleted;
-use Asciisd\KycCore\Events\VerificationFailed;
 
 class HandleVerificationCompleted
 {
@@ -280,10 +301,6 @@ class HandleVerificationCompleted
         $user = $event->user;
         $reference = $event->reference;
         $response = $event->response;
-
-        if ($response->isSuccessful()) {
-            // Approve user, update status, etc.
-        }
     }
 }
 ```
