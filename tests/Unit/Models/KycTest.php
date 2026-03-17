@@ -16,6 +16,7 @@ class KycTest extends TestCase
             'driver',
             'status',
             'reference',
+            'previous_references',
             'started_at',
             'completed_at',
             'data',
@@ -35,11 +36,13 @@ class KycTest extends TestCase
         $this->assertArrayHasKey('started_at', $casts);
         $this->assertArrayHasKey('completed_at', $casts);
         $this->assertArrayHasKey('data', $casts);
+        $this->assertArrayHasKey('previous_references', $casts);
 
         $this->assertEquals(KycStatusEnum::class, $casts['status']);
         $this->assertEquals('datetime', $casts['started_at']);
         $this->assertEquals('datetime', $casts['completed_at']);
         $this->assertEquals('array', $casts['data']);
+        $this->assertEquals('array', $casts['previous_references']);
     }
 
     public function test_kyc_model_kycable_relationship()
@@ -383,5 +386,133 @@ class KycTest extends TestCase
 
         $this->assertTrue($failedKyc->needsAction());
         $this->assertFalse($completedKyc->needsAction());
+    }
+
+    public function test_archive_current_reference()
+    {
+        $kyc = Kyc::create([
+            'kycable_id' => 1,
+            'kycable_type' => 'User',
+            'reference' => 'ref_1',
+            'status' => KycStatusEnum::InProgress,
+        ]);
+
+        $kyc->archiveCurrentReference();
+        $kyc->refresh();
+
+        $this->assertEquals(['ref_1'], $kyc->previous_references);
+    }
+
+    public function test_archive_current_reference_does_not_duplicate()
+    {
+        $kyc = Kyc::create([
+            'kycable_id' => 1,
+            'kycable_type' => 'User',
+            'reference' => 'ref_1',
+            'status' => KycStatusEnum::InProgress,
+            'previous_references' => ['ref_1'],
+        ]);
+
+        $kyc->archiveCurrentReference();
+        $kyc->refresh();
+
+        $this->assertCount(1, $kyc->previous_references);
+    }
+
+    public function test_archive_current_reference_skips_empty()
+    {
+        $kyc = Kyc::create([
+            'kycable_id' => 1,
+            'kycable_type' => 'User',
+            'reference' => '',
+            'status' => KycStatusEnum::NotStarted,
+        ]);
+
+        $kyc->archiveCurrentReference();
+        $kyc->refresh();
+
+        $this->assertNull($kyc->previous_references);
+    }
+
+    public function test_find_by_previous_reference()
+    {
+        Kyc::create([
+            'kycable_id' => 1,
+            'kycable_type' => 'User',
+            'reference' => 'ref_3',
+            'status' => KycStatusEnum::InProgress,
+            'previous_references' => ['ref_1', 'ref_2'],
+        ]);
+
+        $found = Kyc::findByPreviousReference('ref_2');
+        $this->assertNotNull($found);
+        $this->assertEquals('ref_3', $found->reference);
+
+        $notFound = Kyc::findByPreviousReference('ref_nonexistent');
+        $this->assertNull($notFound);
+    }
+
+    public function test_owns_reference_checks_current_and_previous()
+    {
+        $kyc = Kyc::create([
+            'kycable_id' => 1,
+            'kycable_type' => 'User',
+            'reference' => 'ref_3',
+            'status' => KycStatusEnum::InProgress,
+            'previous_references' => ['ref_1', 'ref_2'],
+        ]);
+
+        $this->assertTrue($kyc->ownsReference('ref_3'));
+        $this->assertTrue($kyc->ownsReference('ref_1'));
+        $this->assertTrue($kyc->ownsReference('ref_2'));
+        $this->assertFalse($kyc->ownsReference('ref_unknown'));
+    }
+
+    public function test_update_kyc_status_archives_old_reference()
+    {
+        $kyc = Kyc::create([
+            'kycable_id' => 1,
+            'kycable_type' => 'User',
+            'reference' => 'ref_1',
+            'status' => KycStatusEnum::InProgress,
+        ]);
+
+        $kyc->updateKycStatus(KycStatusEnum::RequestPending, null, null, 'ref_2');
+        $kyc->refresh();
+
+        $this->assertEquals('ref_2', $kyc->reference);
+        $this->assertEquals(['ref_1'], $kyc->previous_references);
+    }
+
+    public function test_update_kyc_status_does_not_archive_same_reference()
+    {
+        $kyc = Kyc::create([
+            'kycable_id' => 1,
+            'kycable_type' => 'User',
+            'reference' => 'ref_1',
+            'status' => KycStatusEnum::InProgress,
+        ]);
+
+        $kyc->updateKycStatus(KycStatusEnum::Completed, null, null, 'ref_1');
+        $kyc->refresh();
+
+        $this->assertEquals('ref_1', $kyc->reference);
+        $this->assertNull($kyc->previous_references);
+    }
+
+    public function test_start_kyc_process_archives_old_reference()
+    {
+        $kyc = Kyc::create([
+            'kycable_id' => 1,
+            'kycable_type' => 'User',
+            'reference' => 'ref_1',
+            'status' => KycStatusEnum::RequestTimeout,
+        ]);
+
+        $kyc->startKycProcess('ref_2', 'https://new.url');
+        $kyc->refresh();
+
+        $this->assertEquals('ref_2', $kyc->reference);
+        $this->assertEquals(['ref_1'], $kyc->previous_references);
     }
 }

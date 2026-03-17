@@ -158,13 +158,13 @@ enum KycStatusEnum: string
     public static function tryFromCaseInsensitive(string $value): ?self
     {
         $value = strtolower($value);
-        
+
         foreach (self::cases() as $case) {
             if (strtolower($case->value) === $value) {
                 return $case;
             }
         }
-        
+
         return null;
     }
 }

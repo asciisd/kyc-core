@@ -5,9 +5,11 @@ namespace Asciisd\KycCore\Services;
 use Asciisd\KycCore\Contracts\KycDriverInterface;
 use Asciisd\KycCore\DTOs\KycVerificationRequest;
 use Asciisd\KycCore\DTOs\KycVerificationResponse;
+use Asciisd\KycCore\Enums\KycStatusEnum;
 use Asciisd\KycCore\Events\VerificationStarted;
 use Asciisd\KycCore\Models\Kyc;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Manager;
 use InvalidArgumentException;
 
@@ -74,8 +76,8 @@ class KycManager extends Manager
 
         // Get the latest KYC record to ensure we're working with the most recent verification
         $kyc = $user->latestKyc();
-        if (!$kyc || !$kyc->canResumeKyc()) {
-            throw new \InvalidArgumentException('No resumable verification found for user');
+        if (! $kyc || ! $kyc->canResumeKyc()) {
+            throw new InvalidArgumentException('No resumable verification found for user');
         }
 
         $driver = $this->driver();
@@ -83,46 +85,46 @@ class KycManager extends Manager
         // First, get the latest status from the provider to ensure we have current information
         try {
             $latestResponse = $driver->retrieveVerification($kyc->reference);
-            
+
             // Update the local status based on the latest provider response
             $this->statusService->updateStatus($user, $latestResponse, $driver);
-            
+
             // Refresh the KYC model to get updated status
             $kyc->refresh();
-            
+
             // Check if the status has changed to a non-resumable state
-            if (!$kyc->canResumeKyc()) {
-                throw new \InvalidArgumentException('Verification status has changed and can no longer be resumed. Current status: ' . $kyc->status->label());
+            if (! $kyc->canResumeKyc()) {
+                throw new InvalidArgumentException('Verification status has changed and can no longer be resumed. Current status: '.$kyc->status->label());
             }
         } catch (\Exception $e) {
             // If we can't retrieve the latest status, proceed with caution
-            \Illuminate\Support\Facades\Log::warning('Could not retrieve latest verification status for resume', [
+            Log::warning('Could not retrieve latest verification status for resume', [
                 'reference' => $kyc->reference,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
         }
 
         // Check if the driver can resume the verification with current status
-        if (!$driver->canResumeVerification($kyc->reference)) {
-            throw new \InvalidArgumentException('Verification cannot be resumed with the current provider. The verification may have expired or moved to a different state.');
+        if (! $driver->canResumeVerification($kyc->reference)) {
+            throw new InvalidArgumentException('Verification cannot be resumed with the current provider. The verification may have expired or moved to a different state.');
         }
 
         // Try to get existing verification URL first
         $verificationUrl = $kyc->getActiveVerificationUrl();
-        
-        if (!$verificationUrl) {
+
+        if (! $verificationUrl) {
             // If no active URL, try to get one from the driver
             $verificationUrl = $driver->getVerificationUrl($kyc->reference);
         }
 
         // For request.pending status, verification URL might not be available yet
         // In this case, we should create a new verification instead of failing
-        if (!$verificationUrl && $kyc->status === \Asciisd\KycCore\Enums\KycStatusEnum::RequestPending) {
-            throw new \InvalidArgumentException('Verification is still pending and no URL is available. A new verification should be created.');
+        if (! $verificationUrl && $kyc->status === KycStatusEnum::RequestPending) {
+            throw new InvalidArgumentException('Verification is still pending and no URL is available. A new verification should be created.');
         }
 
-        if (!$verificationUrl) {
-            throw new \InvalidArgumentException('No active verification URL available for resume');
+        if (! $verificationUrl) {
+            throw new InvalidArgumentException('No active verification URL available for resume');
         }
 
         // Create response with existing data
@@ -162,6 +164,73 @@ class KycManager extends Manager
     }
 
     /**
+     * Import a verification result into an existing KYC record.
+     *
+     * Used for admin imports, cross-environment data transfer, or manual data recovery.
+     * Maps the response event to a status, validates it is importable, builds the data
+     * payload, updates the KYC record, and triggers user data population if completed.
+     *
+     * @param  array<string, mixed>  $metadata  Extra data stored alongside the response (e.g. source environment)
+     *
+     * @throws InvalidArgumentException When the resolved status is not importable
+     */
+    public function importVerification(
+        Kyc $kyc,
+        string $reference,
+        KycVerificationResponse $response,
+        array $metadata = [],
+    ): KycStatusEnum {
+        $driver = $this->driver($kyc->getDriver());
+        $status = $driver->mapEventToStatus($response->event);
+
+        $importableStatuses = [
+            KycStatusEnum::VerificationCompleted,
+            KycStatusEnum::Completed,
+            KycStatusEnum::RequestPending,
+            KycStatusEnum::InProgress,
+            KycStatusEnum::ReviewPending,
+        ];
+
+        if (! in_array($status, $importableStatuses)) {
+            throw new InvalidArgumentException(
+                "Verification is not importable — event: {$response->event}, status: {$status->value}"
+            );
+        }
+
+        $data = array_filter([
+            'extracted_data' => $response->extractedData,
+            'verification_results' => $response->verificationResults,
+            'raw_response' => $response->rawResponse,
+            'last_webhook_event' => $response->event,
+            ...$metadata,
+        ]);
+
+        if (! $kyc->started_at) {
+            $kyc->update(['started_at' => now()->subHour()]);
+        }
+
+        $kyc->updateKycStatus(
+            status: $status,
+            data: $data,
+            notes: $metadata['notes'] ?? null,
+            reference: $reference,
+        );
+
+        if ($status->isCompleted() && $kyc->kycable && method_exists($kyc->kycable, 'populateFromKyc')) {
+            $kyc->kycable->populateFromKyc();
+        }
+
+        Log::info('KYC verification imported', [
+            'kyc_id' => $kyc->id,
+            'kycable_id' => $kyc->kycable_id,
+            'reference' => $reference,
+            'status' => $status->value,
+        ]);
+
+        return $status;
+    }
+
+    /**
      * Process webhook using the default driver
      */
     public function processWebhook(array $payload, array $headers = []): KycVerificationResponse
@@ -169,10 +238,9 @@ class KycManager extends Manager
         $driver = $this->driver();
         $response = $driver->processWebhook($payload, $headers);
 
-        // Find KYC record by reference
-        $kyc = Kyc::where('reference', $response->reference)->first();
-        if (!$kyc) {
-            throw new \InvalidArgumentException("KYC record not found for reference: {$response->reference}");
+        $kyc = $this->resolveKycFromWebhook($response->reference, $payload);
+        if (! $kyc) {
+            throw new InvalidArgumentException("KYC record not found for reference: {$response->reference}");
         }
 
         // Handle special data change events with deep merging
@@ -188,17 +256,78 @@ class KycManager extends Manager
     }
 
     /**
+     * Resolve a KYC record from webhook data using multiple fallback strategies:
+     *  1. Current reference
+     *  2. Archived previous_references
+     *  3. Email from payload matched to the kycable model
+     */
+    private function resolveKycFromWebhook(string $reference, array $payload): ?Kyc
+    {
+        // 1. Direct reference match
+        $kyc = Kyc::where('reference', $reference)->first();
+        if ($kyc) {
+            return $kyc;
+        }
+
+        // 2. Archived previous_references match
+        $kyc = Kyc::findByPreviousReference($reference);
+        if ($kyc) {
+            Log::info('KYC Webhook matched via previous_references', [
+                'webhook_reference' => $reference,
+                'current_reference' => $kyc->reference,
+                'kyc_id' => $kyc->id,
+            ]);
+
+            return $kyc;
+        }
+
+        // 3. Email-based fallback — match the webhook email to a user, then find their KYC
+        $email = $payload['email'] ?? null;
+        if ($email) {
+            $userClass = $this->config->get('kyc.user_model', 'App\\Models\\User');
+            $user = $userClass::where('email', $email)->first();
+
+            if ($user) {
+                $kyc = Kyc::where('kycable_id', $user->getKey())
+                    ->where('kycable_type', $user::class)
+                    ->first();
+
+                if ($kyc) {
+                    Log::info('KYC Webhook matched via email fallback', [
+                        'webhook_reference' => $reference,
+                        'current_reference' => $kyc->reference,
+                        'email' => $email,
+                        'kyc_id' => $kyc->id,
+                    ]);
+
+                    // Archive this orphaned reference so future webhooks resolve directly
+                    $previous = $kyc->previous_references ?? [];
+                    if (! in_array($reference, $previous, true)) {
+                        $previous[] = $reference;
+                        $kyc->update(['previous_references' => $previous]);
+                    }
+
+                    return $kyc;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Handle request.data.changed event with deep data merging
      */
     protected function handleDataChangedEvent(Kyc $kyc, array $payload, KycVerificationResponse $response): void
     {
         $verificationData = $payload['verification_data'] ?? [];
-        
+
         if (empty($verificationData)) {
-            \Illuminate\Support\Facades\Log::warning('No verification_data in request.data.changed event', [
+            Log::warning('No verification_data in request.data.changed event', [
                 'reference' => $kyc->reference,
                 'payload' => $payload,
             ]);
+
             return;
         }
 
@@ -226,7 +355,7 @@ class KycManager extends Manager
             $kyc->kycable->populateFromKyc();
         }
 
-        \Illuminate\Support\Facades\Log::info('KYC data updated successfully via request.data.changed', [
+        Log::info('KYC data updated successfully via request.data.changed', [
             'reference' => $kyc->reference,
             'updated_fields' => array_keys($verificationData),
         ]);
@@ -308,11 +437,11 @@ class KycManager extends Manager
     protected function createShuftiproDriver(): KycDriverInterface
     {
         $driverClass = $this->config->get('kyc.drivers.shuftipro.class');
-        
-        if (!$driverClass || !class_exists($driverClass)) {
+
+        if (! $driverClass || ! class_exists($driverClass)) {
             throw new InvalidArgumentException('ShuftiPro driver class is not configured or does not exist.');
         }
-        
+
         return $this->container->make($driverClass);
     }
 

@@ -53,6 +53,25 @@ $response = Kyc::processWebhook($payload, $headers);
 
 Add `Asciisd\KycCore\Traits\HasKycVerification` to models that need KYC. Provides `kyc()`, `latestKyc()`, `canStartKyc()`, `needsKycVerification()`, `hasCompletedKyc()`, `canResumeKyc()`, `startKycProcess()`, `updateKycStatus()`.
 
+### Reference Archiving
+
+The `Kyc` model keeps a single record per user. When the `reference` is overwritten (new verification started), the old reference is archived into `previous_references` (JSON array) automatically by `updateKycStatus()` and `startKycProcess()`. The webhook handler (`KycManager::processWebhook()`) resolves records by: 1) current reference, 2) `previous_references` via `findByPreviousReference()`, 3) email-based fallback from webhook payload. Use `ownsReference($ref)` to check if a reference belongs to a record (current or archived).
+
+### Importing Verifications
+
+`KycManager::importVerification()` imports a verification result into an existing KYC record. Handles status mapping, importable validation, data building, reference archiving, `started_at` fallback, `updateKycStatus()`, and `populateFromKyc()` on completion. Throws `InvalidArgumentException` for non-importable statuses.
+
+@verbatim
+<code-snippet name="Import Verification" lang="php">
+use Asciisd\KycCore\Facades\Kyc;
+
+$status = Kyc::importVerification($kycModel, $reference, $kycVerificationResponse, [
+    'imported_from_environment' => 'production',
+    'notes' => 'Imported from production',
+]);
+</code-snippet>
+@endverbatim
+
 ### Enums
 
 - `KycStatusEnum` — NotStarted, RequestPending, InProgress, ReviewPending, VerificationCompleted, VerificationFailed, VerificationCancelled, RequestTimeout, Completed, Rejected.
@@ -70,6 +89,14 @@ Add `Asciisd\KycCore\Traits\HasKycVerification` to models that need KYC. Provide
 - `VerificationCompleted` — Dispatched on successful verification (after `KycStatusChanged`).
 - `VerificationFailed` — Dispatched on failed verification (after `KycStatusChanged`).
 
+### Kyc Model
+
+Polymorphic model (`kycable`) with fields: `driver`, `status`, `reference`, `previous_references` (JSON array), `started_at`, `completed_at`, `data` (JSON), `notes`.
+
+Casts: `status` → `KycStatusEnum`, `started_at`/`completed_at` → datetime, `data` → array, `previous_references` → array.
+
+Methods: `getActiveVerificationUrl()`, `canResumeKyc()`, `archiveCurrentReference()`, `findByPreviousReference()`, `ownsReference()`, `updateKycStatus()`, `startKycProcess()`, `updateKycData()`, `getDriver()`, `usesDriver()`, `isCompleted()`, `isFailed()`, `isInProgress()`, `needsAction()`.
+
 ### Config
 
-Config file: `config/kyc.php`. Key sections: `default_driver`, `drivers` (class + supports), `settings` (max attempts, URL expiry, document storage, duplicate detection, resume functionality).
+Config file: `config/kyc.php`. Key sections: `default_driver`, `drivers` (class + supports), `settings` (max attempts, URL expiry, document storage, duplicate detection, resume functionality), `user_model` (class used for email-based webhook fallback lookup, defaults to `App\Models\User`).

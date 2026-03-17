@@ -4,13 +4,14 @@ namespace Asciisd\KycCore\Traits;
 
 use Asciisd\KycCore\Enums\KycStatusEnum;
 use Asciisd\KycCore\Models\Kyc;
+use Illuminate\Database\Eloquent\Relations\MorphOne;
 
 trait HasKycVerification
 {
     /**
      * Get the user's KYC verification.
      */
-    public function kyc(): \Illuminate\Database\Eloquent\Relations\MorphOne
+    public function kyc(): MorphOne
     {
         return $this->morphOne(Kyc::class, 'kycable');
     }

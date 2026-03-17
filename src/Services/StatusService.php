@@ -52,9 +52,15 @@ class StatusService
      */
     private function findOrCreateKyc(Model $user, ?string $reference = null): Kyc
     {
-        // First try to find by reference if provided
+        // First try to find by current reference
         if ($reference) {
             $kyc = Kyc::where('reference', $reference)->first();
+            if ($kyc) {
+                return $kyc;
+            }
+
+            // Check archived previous_references
+            $kyc = Kyc::findByPreviousReference($reference);
             if ($kyc) {
                 return $kyc;
             }

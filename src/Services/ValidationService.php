@@ -3,6 +3,8 @@
 namespace Asciisd\KycCore\Services;
 
 use Asciisd\KycCore\DTOs\KycVerificationRequest;
+use Asciisd\KycCore\Enums\KycStatusEnum;
+use Asciisd\KycCore\Models\Kyc;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Validation\ValidationException;
 
@@ -101,12 +103,12 @@ class ValidationService
      */
     private function getUserAttemptCount(Model $user): int
     {
-        return \Asciisd\KycCore\Models\Kyc::where('kycable_id', $user->getKey())
+        return Kyc::where('kycable_id', $user->getKey())
             ->where('kycable_type', $user::class)
             ->whereIn('status', [
-                \Asciisd\KycCore\Enums\KycStatusEnum::VerificationFailed,
-                \Asciisd\KycCore\Enums\KycStatusEnum::Rejected,
-                \Asciisd\KycCore\Enums\KycStatusEnum::RequestTimeout,
+                KycStatusEnum::VerificationFailed,
+                KycStatusEnum::Rejected,
+                KycStatusEnum::RequestTimeout,
             ])
             ->count();
     }

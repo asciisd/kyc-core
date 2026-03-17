@@ -3,6 +3,7 @@
 namespace Asciisd\KycCore\Models;
 
 use Asciisd\KycCore\Enums\KycStatusEnum;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
@@ -20,6 +21,7 @@ class Kyc extends Model
         'driver',
         'status',
         'reference',
+        'previous_references',
         'started_at',
         'completed_at',
         'data',
@@ -36,6 +38,7 @@ class Kyc extends Model
             'started_at' => 'datetime',
             'completed_at' => 'datetime',
             'data' => 'array',
+            'previous_references' => 'array',
         ];
     }
 
@@ -58,7 +61,7 @@ class Kyc extends Model
 
         // Check if URL was created within the configured expiry time
         if (isset($this->data['verification_url_created_at'])) {
-            $createdAt = \Carbon\Carbon::parse($this->data['verification_url_created_at']);
+            $createdAt = Carbon::parse($this->data['verification_url_created_at']);
             $expiryHours = config('kyc.settings.verification_url_expiry_hours', 24);
 
             if ($createdAt->diffInHours(now()) > $expiryHours) {
@@ -79,6 +82,43 @@ class Kyc extends Model
     }
 
     /**
+     * Archive the current reference into previous_references before it gets overwritten.
+     */
+    public function archiveCurrentReference(): void
+    {
+        if (! $this->reference) {
+            return;
+        }
+
+        $previous = $this->previous_references ?? [];
+
+        if (! in_array($this->reference, $previous, true)) {
+            $previous[] = $this->reference;
+            $this->update(['previous_references' => $previous]);
+        }
+    }
+
+    /**
+     * Find a KYC record by searching previous_references JSON column.
+     */
+    public static function findByPreviousReference(string $reference): ?self
+    {
+        return static::whereJsonContains('previous_references', $reference)->first();
+    }
+
+    /**
+     * Check whether the given reference belongs to this KYC record (current or archived).
+     */
+    public function ownsReference(string $reference): bool
+    {
+        if ($this->reference === $reference) {
+            return true;
+        }
+
+        return in_array($reference, $this->previous_references ?? [], true);
+    }
+
+    /**
      * Update KYC status based on verification result
      */
     public function updateKycStatus(KycStatusEnum $status, ?array $data = null, ?string $notes = null, ?string $reference = null): void
@@ -93,12 +133,13 @@ class Kyc extends Model
             $updateData['notes'] = $notes;
         }
 
-        if ($reference) {
+        if ($reference && $reference !== $this->reference) {
+            $this->archiveCurrentReference();
             $updateData['reference'] = $reference;
         }
 
         // Set started_at when verification begins (first time moving from NotStarted)
-        if ($this->status === KycStatusEnum::NotStarted && $status->isInProgress() && !$this->started_at) {
+        if ($this->status === KycStatusEnum::NotStarted && $status->isInProgress() && ! $this->started_at) {
             $updateData['started_at'] = now();
         }
 
@@ -115,6 +156,10 @@ class Kyc extends Model
      */
     public function startKycProcess(string $reference, ?string $verificationUrl = null, ?string $driver = null): void
     {
+        if ($reference !== $this->reference) {
+            $this->archiveCurrentReference();
+        }
+
         $kycData = $this->data ?? [];
 
         if ($verificationUrl) {

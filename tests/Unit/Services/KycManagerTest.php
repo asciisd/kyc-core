@@ -2,12 +2,17 @@
 
 namespace Asciisd\KycCore\Tests\Unit\Services;
 
+use Asciisd\KycCore\Contracts\KycDriverInterface;
 use Asciisd\KycCore\DTOs\KycVerificationRequest;
 use Asciisd\KycCore\DTOs\KycVerificationResponse;
+use Asciisd\KycCore\Enums\KycStatusEnum;
+use Asciisd\KycCore\Events\VerificationStarted;
+use Asciisd\KycCore\Models\Kyc;
 use Asciisd\KycCore\Services\KycManager;
 use Asciisd\KycCore\Services\StatusService;
 use Asciisd\KycCore\Services\ValidationService;
 use Asciisd\KycCore\Tests\TestCase;
+use Asciisd\KycCore\Tests\TestUser;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Event;
 use InvalidArgumentException;
@@ -57,7 +62,7 @@ class KycManagerTest extends TestCase
     {
         $driver = $this->kycManager->getDriver('test');
 
-        $this->assertInstanceOf(\Asciisd\KycCore\Contracts\KycDriverInterface::class, $driver);
+        $this->assertInstanceOf(KycDriverInterface::class, $driver);
         $this->assertEquals('test', $driver->getName());
     }
 
@@ -85,7 +90,7 @@ class KycManagerTest extends TestCase
         $this->assertTrue($response->isSuccessful());
         $this->assertStringStartsWith('test_ref_', $response->reference);
 
-        Event::assertDispatched(\Asciisd\KycCore\Events\VerificationStarted::class);
+        Event::assertDispatched(VerificationStarted::class);
     }
 
     public function test_create_simple_verification()
@@ -100,7 +105,7 @@ class KycManagerTest extends TestCase
         $this->assertInstanceOf(KycVerificationResponse::class, $response);
         $this->assertTrue($response->isSuccessful());
 
-        Event::assertDispatched(\Asciisd\KycCore\Events\VerificationStarted::class);
+        Event::assertDispatched(VerificationStarted::class);
     }
 
     public function test_retrieve_verification()
@@ -114,6 +119,15 @@ class KycManagerTest extends TestCase
 
     public function test_process_webhook()
     {
+        $user = TestUser::create(['email' => 'test@example.com']);
+
+        Kyc::create([
+            'kycable_id' => $user->id,
+            'kycable_type' => TestUser::class,
+            'reference' => 'test_reference',
+            'status' => KycStatusEnum::InProgress,
+        ]);
+
         $payload = [
             'reference' => 'test_reference',
             'event' => 'verification.completed',
@@ -139,6 +153,130 @@ class KycManagerTest extends TestCase
         $this->assertIsArray($documents);
         $this->assertCount(2, $documents);
         $this->assertContains('document1.jpg', $documents);
+    }
+
+    public function test_process_webhook_resolves_via_previous_references()
+    {
+        $user = TestUser::create(['email' => 'test@example.com']);
+
+        Kyc::create([
+            'kycable_id' => $user->id,
+            'kycable_type' => TestUser::class,
+            'reference' => 'ref_current',
+            'status' => KycStatusEnum::InProgress,
+            'previous_references' => ['ref_old_1', 'ref_old_2'],
+        ]);
+
+        $payload = [
+            'reference' => 'ref_old_1',
+            'event' => 'verification.completed',
+        ];
+
+        $response = $this->kycManager->processWebhook($payload, []);
+
+        $this->assertInstanceOf(KycVerificationResponse::class, $response);
+        $this->assertEquals('ref_old_1', $response->reference);
+    }
+
+    public function test_process_webhook_throws_when_no_match()
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('KYC record not found for reference');
+
+        $payload = [
+            'reference' => 'totally_unknown_ref',
+            'event' => 'verification.completed',
+        ];
+
+        $this->kycManager->processWebhook($payload, []);
+    }
+
+    public function test_import_verification_updates_kyc_record()
+    {
+        $user = TestUser::create(['email' => 'import@example.com']);
+
+        $kyc = Kyc::create([
+            'kycable_id' => $user->id,
+            'kycable_type' => TestUser::class,
+            'reference' => 'old_ref',
+            'status' => KycStatusEnum::InProgress,
+        ]);
+
+        $response = new KycVerificationResponse(
+            reference: 'imported_ref',
+            event: 'verification.completed',
+            success: true,
+            extractedData: ['first_name' => 'John'],
+            rawResponse: ['event' => 'verification.completed'],
+        );
+
+        $status = $this->kycManager->importVerification(
+            kyc: $kyc,
+            reference: 'imported_ref',
+            response: $response,
+            metadata: [
+                'imported_from_environment' => 'production',
+                'notes' => 'Test import',
+            ],
+        );
+
+        $kyc->refresh();
+
+        $this->assertEquals(KycStatusEnum::Completed, $status);
+        $this->assertEquals('imported_ref', $kyc->reference);
+        $this->assertEquals(['old_ref'], $kyc->previous_references);
+        $this->assertArrayHasKey('extracted_data', $kyc->data);
+        $this->assertArrayHasKey('imported_from_environment', $kyc->data);
+        $this->assertEquals('Test import', $kyc->notes);
+        $this->assertNotNull($kyc->completed_at);
+    }
+
+    public function test_import_verification_rejects_non_importable_status()
+    {
+        $user = TestUser::create(['email' => 'fail@example.com']);
+
+        $kyc = Kyc::create([
+            'kycable_id' => $user->id,
+            'kycable_type' => TestUser::class,
+            'reference' => 'some_ref',
+            'status' => KycStatusEnum::InProgress,
+        ]);
+
+        $response = new KycVerificationResponse(
+            reference: 'failed_ref',
+            event: 'verification.failed',
+            success: false,
+        );
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('not importable');
+
+        $this->kycManager->importVerification($kyc, 'failed_ref', $response);
+    }
+
+    public function test_import_verification_sets_started_at_when_null()
+    {
+        $user = TestUser::create(['email' => 'new@example.com']);
+
+        $kyc = Kyc::create([
+            'kycable_id' => $user->id,
+            'kycable_type' => TestUser::class,
+            'reference' => 'pending_ref',
+            'status' => KycStatusEnum::NotStarted,
+        ]);
+
+        $this->assertNull($kyc->started_at);
+
+        $response = new KycVerificationResponse(
+            reference: 'import_ref',
+            event: 'verification.completed',
+            success: true,
+        );
+
+        $this->kycManager->importVerification($kyc, 'import_ref', $response);
+        $kyc->refresh();
+
+        $this->assertNotNull($kyc->started_at);
     }
 
     private function createTestUser(): Model

@@ -4,6 +4,7 @@ namespace Asciisd\KycCore\Contracts;
 
 use Asciisd\KycCore\DTOs\KycVerificationRequest;
 use Asciisd\KycCore\DTOs\KycVerificationResponse;
+use Asciisd\KycCore\Enums\KycStatusEnum;
 use Illuminate\Database\Eloquent\Model;
 
 interface KycDriverInterface
@@ -71,5 +72,5 @@ interface KycDriverInterface
     /**
      * Map provider-specific event to standardized KYC status
      */
-    public function mapEventToStatus(string $event): \Asciisd\KycCore\Enums\KycStatusEnum;
+    public function mapEventToStatus(string $event): KycStatusEnum;
 }

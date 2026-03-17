@@ -16,6 +16,13 @@ abstract class TestCase extends OrchestraTestCase
 
         // Run migrations
         $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
+
+        // Create users table for morph resolution in tests
+        \Illuminate\Support\Facades\Schema::create('users', function (\Illuminate\Database\Schema\Blueprint $table) {
+            $table->id();
+            $table->string('email')->nullable();
+            $table->timestamps();
+        });
     }
 
     protected function getPackageProviders($app): array
@@ -78,6 +85,14 @@ abstract class TestCase extends OrchestraTestCase
             'restricted_countries' => ['IR', 'KP'],
         ]);
     }
+}
+
+// Simple User model for morph resolution in tests
+class TestUser extends \Illuminate\Database\Eloquent\Model
+{
+    protected $table = 'users';
+
+    protected $fillable = ['email'];
 }
 
 // Test driver for testing purposes

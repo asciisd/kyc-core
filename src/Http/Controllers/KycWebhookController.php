@@ -22,7 +22,7 @@ class KycWebhookController
         try {
             $payload = $request->all();
             $headers = $request->headers->all();
-            
+
             Log::info('KYC Webhook received', [
                 'payload' => $payload,
                 'headers' => $headers,
@@ -34,8 +34,9 @@ class KycWebhookController
             $reference = $payload['reference'] ?? null;
             $event = $payload['event'] ?? null;
 
-            if (!$reference) {
+            if (! $reference) {
                 Log::warning('KYC webhook missing reference', ['payload' => $payload]);
+
                 return response()->json([
                     'success' => false,
                     'message' => 'Missing reference parameter',

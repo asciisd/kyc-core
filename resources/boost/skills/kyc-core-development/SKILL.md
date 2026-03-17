@@ -267,6 +267,52 @@ class User extends Authenticatable
 
 Provides: `kyc()`, `latestKyc()`, `canStartKyc()`, `needsKycVerification()`, `hasCompletedKyc()`, `canResumeKyc()`, `getActiveVerificationUrl()`, `getKycStatus()`, `startKycProcess()`, `updateKycStatus()`, `updateKycData()`, `getKycReference()`, `hasKyc()`, `getKycDriver()`.
 
+## Reference Archiving
+
+The `Kyc` model supports a single record per user. When a new verification is created for a user who already has a KYC record, the existing `reference` is automatically archived into `previous_references` (a JSON array) before being overwritten. This prevents orphaned references and ensures webhooks for older verifications can still be matched.
+
+### How It Works
+
+- `archiveCurrentReference()` — Pushes current `reference` into `previous_references` before overwrite. Called automatically by `updateKycStatus()` and `startKycProcess()` when the reference changes.
+- `findByPreviousReference(string $ref)` — Static method to look up a KYC record by an archived reference via `whereJsonContains`.
+- `ownsReference(string $ref)` — Returns `true` if the reference matches `reference` or is in `previous_references`.
+
+### Webhook Resolution Strategy
+
+`KycManager::processWebhook()` resolves the KYC record using three fallback strategies:
+1. **Direct match** — `Kyc::where('reference', $ref)`
+2. **Archived match** — `Kyc::findByPreviousReference($ref)`
+3. **Email fallback** — Extracts `email` from the webhook payload, finds the user, then finds their KYC record. Also archives the orphaned reference for future direct lookup.
+
+This ensures webhooks for overwritten references are still processed correctly.
+
+## Importing Verifications
+
+`KycManager::importVerification()` imports a verification result into an existing KYC record. Use it for admin imports, cross-environment data transfer, or manual recovery. It maps the response event to a status, validates importability, builds the data payload, updates the record, and populates user data on completion.
+
+```php
+use Asciisd\KycCore\Facades\Kyc;
+use Asciisd\KycCore\DTOs\KycVerificationResponse;
+
+$status = Kyc::importVerification(
+    kyc: $kycModel,
+    reference: 'SP_remote_ref',
+    response: $kycVerificationResponse,
+    metadata: [
+        'imported_from_environment' => 'production',
+        'notes' => 'Imported from production',
+    ],
+);
+```
+
+**Importable statuses:** `VerificationCompleted`, `Completed`, `RequestPending`, `InProgress`, `ReviewPending`.
+
+Throws `InvalidArgumentException` for non-importable statuses (e.g. failed/cancelled). Automatically handles:
+- Reference archiving (if the new reference differs from the current one)
+- Setting `started_at` if null
+- Calling `$kyc->kycable->populateFromKyc()` on completed status
+- Logging the import
+
 ## Handling Webhooks
 
 ### Event Listeners
@@ -385,12 +431,12 @@ Publish config: `php artisan vendor:publish --tag=kyc-config`
 
 ## Kyc Model
 
-Polymorphic model (`kycable`) with fields: `driver`, `status`, `reference`, `started_at`, `completed_at`, `data` (JSON), `notes`.
+Polymorphic model (`kycable`) with fields: `driver`, `status`, `reference`, `previous_references` (JSON array), `started_at`, `completed_at`, `data` (JSON), `notes`.
 
-Casts: `status` → `KycStatusEnum`, `started_at`/`completed_at` → datetime, `data` → array.
+Casts: `status` → `KycStatusEnum`, `started_at`/`completed_at` → datetime, `data` → array, `previous_references` → array.
 
-Methods: `getActiveVerificationUrl()`, `canResumeKyc()`, `updateKycStatus()`, `startKycProcess()`, `updateKycData()`, `getDriver()`, `usesDriver()`, `isCompleted()`, `isFailed()`, `isInProgress()`, `needsAction()`.
+Methods: `getActiveVerificationUrl()`, `canResumeKyc()`, `archiveCurrentReference()`, `findByPreviousReference()`, `ownsReference()`, `updateKycStatus()`, `startKycProcess()`, `updateKycData()`, `getDriver()`, `usesDriver()`, `isCompleted()`, `isFailed()`, `isInProgress()`, `needsAction()`.
 
 ## Migrations
 
-Table `kycs` with: `id`, `kycable_id`, `kycable_type`, `driver`, `status`, `reference`, `started_at`, `completed_at`, `data` (json), `notes`, `timestamps`.
+Table `kycs` with: `id`, `kycable_id`, `kycable_type`, `driver`, `status`, `reference`, `previous_references` (json), `started_at`, `completed_at`, `data` (json), `notes`, `timestamps`.
