@@ -1,6 +1,6 @@
 {
     "name": "asciisd/kyc-core",
-    "version": "1.8.1",
+    "version": "1.9.0",
     "description": "Core KYC (Know Your Customer) functionality for Laravel applications with enhanced webhook data merging",
     "type": "library",
     "license": "MIT",
@@ -11,8 +11,8 @@
         }
     ],
     "require": {
-        "php": "^8.2",
-        "laravel/framework": "^12.0",
+        "php": "^8.3",
+        "laravel/framework": "^12.0|^13.0",
         "intervention/validation": "^4.0"
     },
     "require-dev": {
