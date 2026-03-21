@@ -243,6 +243,33 @@ class KycManager extends Manager
             throw new InvalidArgumentException("KYC record not found for reference: {$response->reference}");
         }
 
+        if (! $kyc->kycable) {
+            $user = $this->resolveUserByEmail($kyc->kycable_type, $payload, $kyc->data);
+
+            if ($user) {
+                $kyc->update([
+                    'kycable_id' => $user->getKey(),
+                    'kycable_type' => $user::class,
+                ]);
+                $kyc->setRelation('kycable', $user);
+
+                Log::info('KYC record re-associated with user via email', [
+                    'reference' => $response->reference,
+                    'user_id' => $user->getKey(),
+                    'previous_kycable_id' => $kyc->getOriginal('kycable_id'),
+                ]);
+            } else {
+                Log::warning('KYC webhook received for orphaned record (kycable not found)', [
+                    'reference' => $response->reference,
+                    'kycable_id' => $kyc->kycable_id,
+                    'kycable_type' => $kyc->kycable_type,
+                    'event' => $payload['event'] ?? null,
+                ]);
+
+                throw new InvalidArgumentException("Associated user not found for KYC reference: {$response->reference}");
+            }
+        }
+
         // Handle special data change events with deep merging
         $event = $payload['event'] ?? null;
         if ($event === 'request.data.changed') {
@@ -309,10 +336,50 @@ class KycManager extends Manager
 
                     return $kyc;
                 }
+
+                $kyc = Kyc::create([
+                    'kycable_id' => $user->getKey(),
+                    'kycable_type' => $user::class,
+                    'reference' => $reference,
+                    'status' => KycStatusEnum::NotStarted,
+                    'driver' => $this->getDefaultDriver(),
+                ]);
+                $kyc->setRelation('kycable', $user);
+
+                Log::info('KYC record created via email fallback', [
+                    'webhook_reference' => $reference,
+                    'email' => $email,
+                    'kyc_id' => $kyc->id,
+                    'user_id' => $user->getKey(),
+                ]);
+
+                return $kyc;
             }
         }
 
         return null;
+    }
+
+    /**
+     * Attempt to resolve the user by email from the webhook payload or stored KYC data.
+     */
+    private function resolveUserByEmail(?string $kycableType, array $payload, ?array $kycData = null): ?Model
+    {
+        $kycableType = $kycableType ?: $this->config->get('kyc.user_model', 'App\\Models\\User');
+        if (! class_exists($kycableType)) {
+            return null;
+        }
+
+        $email = $payload['email']
+            ?? data_get($kycData, 'email')
+            ?? data_get($payload, 'verification_data.email')
+            ?? null;
+
+        if (! $email) {
+            return null;
+        }
+
+        return $kycableType::where('email', $email)->first();
     }
 
     /**

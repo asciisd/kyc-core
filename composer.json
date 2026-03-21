@@ -1,6 +1,6 @@
 {
     "name": "asciisd/kyc-core",
-    "version": "1.8.0",
+    "version": "1.8.1",
     "description": "Core KYC (Know Your Customer) functionality for Laravel applications with enhanced webhook data merging",
     "type": "library",
     "license": "MIT",
