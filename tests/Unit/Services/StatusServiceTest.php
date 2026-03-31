@@ -169,6 +169,38 @@ class StatusServiceTest extends TestCase
         $this->assertArrayHasKey('info', $data['raw_response']);
     }
 
+    public function test_status_update_preserves_existing_verification_url_when_response_has_null()
+    {
+        Event::fake();
+
+        $user = $this->createTestUser();
+
+        $existingUrl = 'https://provider.com/verify/existing-token';
+
+        Kyc::create([
+            'kycable_id' => $user->getKey(),
+            'kycable_type' => $user::class,
+            'reference' => 'test_ref_url',
+            'status' => KycStatusEnum::RequestPending,
+            'data' => [
+                'verification_url' => $existingUrl,
+                'verification_url_created_at' => now()->toISOString(),
+            ],
+        ]);
+
+        $statusCheckResponse = new KycVerificationResponse(
+            reference: 'test_ref_url',
+            event: 'request.pending',
+            success: false,
+            country: 'KW',
+        );
+
+        $this->statusService->updateStatus($user, $statusCheckResponse, $this->driver);
+
+        $kyc = Kyc::where('reference', 'test_ref_url')->first();
+        $this->assertEquals($existingUrl, $kyc->data['verification_url']);
+    }
+
     public function test_fire_status_events()
     {
         Event::fake();

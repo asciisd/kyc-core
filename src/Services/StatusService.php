@@ -85,15 +85,19 @@ class StatusService
     }
 
     /**
-     * Extract relevant data from verification response
+     * Extract relevant data from verification response.
+     *
+     * Null values are stripped so that status-check responses (which lack
+     * fields like verification_url) don't overwrite previously stored data.
      */
     private function extractDataFromResponse(KycVerificationResponse $response): array
     {
-        // Store the complete response data directly with webhook metadata
-        return array_merge($response->toArray(), [
-            'last_webhook_event' => $response->event,
-            'last_webhook_at' => now()->toISOString(),
-        ]);
+        $data = array_filter($response->toArray(), fn ($value) => $value !== null);
+
+        $data['last_webhook_event'] = $response->event;
+        $data['last_webhook_at'] = now()->toISOString();
+
+        return $data;
     }
 
     /**
